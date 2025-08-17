@@ -70,6 +70,8 @@ elif page == "All Transactions":
 elif page == "Visualization & Analysis":
     st.title("Dashboard & Insights")
 
+    vis_type = st.radio("See Visualisation",["Month-wise spendings","Categories-wise spending","Top transactions"])
+
     # cached loader so UI snappy
     @st.cache_data
     def _load_df():
@@ -97,15 +99,18 @@ elif page == "Visualization & Analysis":
         else:
             selected_cats = selected
 
-        # Monthly spend figure
-        fig_month = make_monthly_spend_figure(df, start_date=start, end_date=end, categories=selected_cats)
-        st.plotly_chart(fig_month, use_container_width=True)
+        if vis_type == "Month-wise spendings":
+            # Monthly spend figure
+            fig_month = make_monthly_spend_figure(df, start_date=start, end_date=end, categories=selected_cats)
+            st.plotly_chart(fig_month, use_container_width=True)
 
-        # Category spend figure
-        fig_cat = make_category_spend_figure(df, start_date=start, end_date=end)
-        st.plotly_chart(fig_cat, use_container_width=True)
+        elif vis_type == "Categories-wise spending":
+            # Category spend figure
+            fig_cat = make_category_spend_figure(df, start_date=start, end_date=end)
+            st.plotly_chart(fig_cat, use_container_width=True)
 
-        # Top transactions
-        st.subheader("Top transactions")
-        top_df = top_n_transactions(df, n=5)
-        st.dataframe(top_df, use_container_width=True)
+        elif vis_type == "Top transactions":
+            # Top transactions
+            st.subheader("Top transactions")
+            top_df = top_n_transactions(df, n=5)
+            st.dataframe(top_df, use_container_width=True)
