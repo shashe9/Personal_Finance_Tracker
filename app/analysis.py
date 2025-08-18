@@ -3,19 +3,19 @@ import pandas as pd
 import plotly.express as px
 from db_handler import get_transactions
 
+
 def load_transactions_df() -> pd.DataFrame:
     """
-    Load transactions from DB (via your db_handler) and normalize columns.
-    Returns an empty DataFrame if no rows exist.
+    Load transactions from DB and normalize.
+    Ensures type column is used (expense/income).
     """
-    df = get_transactions()  # expects a pandas DataFrame
+    df = get_transactions()
     if df is None or df.empty:
-        return pd.DataFrame(columns=["id", "date", "description", "amount", "category"])
+        return pd.DataFrame(columns=["id", "date", "description", "amount", "category", "type"])
 
-    # normalize column names to lowercase to be resilient
+    # normalize columns
     df.columns = [c.lower() for c in df.columns]
 
-    # Ensure expected columns exist
     if "date" in df.columns:
         df["date"] = pd.to_datetime(df["date"], errors="coerce")
     else:
@@ -31,19 +31,25 @@ def load_transactions_df() -> pd.DataFrame:
     else:
         df["category"] = df["category"].fillna("Other")
 
-    # Add year_month string for grouping (YYYY-MM)
+    if "type" not in df.columns:
+        df["type"] = "expense"  # fallback
+
+    # Flip sign for expenses, keep income positive
+    df["signed_amount"] = df.apply(
+        lambda r: -r["amount"] if r["type"].lower() == "expense" else r["amount"],
+        axis=1
+    )
+
     df["year_month"] = df["date"].dt.to_period("M").astype(str)
     return df
 
+
 def make_monthly_spend_figure(df: pd.DataFrame, start_date=None, end_date=None, categories=None):
     """
-    Returns a Plotly bar chart of monthly spending.
-    - df: preprocessed DataFrame from load_transactions_df()
-    - start_date/end_date: strings or pd.Timestamp (inclusive)
-    - categories: list of category names to filter
+    Returns a Plotly bar chart of monthly net amounts (income - expenses).
     """
     if df.empty:
-        return px.bar(title="Monthly Spending (no data)")
+        return px.bar(title="Monthly Net (no data)")
 
     dff = df.copy()
     if start_date is not None:
@@ -53,28 +59,30 @@ def make_monthly_spend_figure(df: pd.DataFrame, start_date=None, end_date=None, 
     if categories:
         dff = dff[dff["category"].isin(categories)]
 
-    monthly = dff.groupby("year_month", as_index=False)["amount"].sum().sort_values("year_month")
-    # If empty after filtering:
+    monthly = dff.groupby("year_month", as_index=False)["signed_amount"].sum().sort_values("year_month")
     if monthly.empty:
-        return px.bar(title="Monthly Spending (no matching data)")
+        return px.bar(title="Monthly Net (no matching data)")
 
     fig = px.bar(
         monthly,
         x="year_month",
-        y="amount",
-        title="Monthly Spending",
-        labels={"year_month": "Month", "amount": "Total Spend"},
-        text_auto=".2s"
+        y="signed_amount",
+        title="Monthly Net (Income - Expense)",
+        labels={"year_month": "Month", "signed_amount": "Net Amount"},
+        text_auto=".2s",
+        color="signed_amount",  # positive = income, negative = expense
+        color_continuous_scale="RdYlGn"
     )
     fig.update_layout(xaxis_tickangle=-45, margin=dict(t=50, b=100))
     return fig
 
+
 def make_category_spend_figure(df: pd.DataFrame, start_date=None, end_date=None):
     """
-    Returns a Plotly pie chart (donut) of spending by category.
+    Returns a Plotly pie chart of EXPENSES by category only.
     """
     if df.empty:
-        return px.pie(title="Spending by Category (no data)")
+        return px.pie(title="Expenses by Category (no data)")
 
     dff = df.copy()
     if start_date is not None:
@@ -82,27 +90,37 @@ def make_category_spend_figure(df: pd.DataFrame, start_date=None, end_date=None)
     if end_date is not None:
         dff = dff[dff["date"] <= pd.to_datetime(end_date)]
 
-    cat = dff.groupby("category", as_index=False)["amount"].sum().sort_values("amount", ascending=False)
+    # Filter only expenses (positive values for chart)
+    expenses = dff[dff["type"].str.lower() == "expense"].copy()
+    expenses["amount"] = expenses["amount"].abs()
+
+    cat = expenses.groupby("category", as_index=False)["amount"].sum().sort_values("amount", ascending=False)
     if cat.empty:
-        return px.pie(title="Spending by Category (no matching data)")
+        return px.pie(title="Expenses by Category (no matching data)")
 
     fig = px.pie(
         cat,
         values="amount",
         names="category",
-        title="Spending by Category",
+        title="Expenses by Category",
         hole=0.35
     )
     fig.update_traces(textposition="inside", textinfo="percent+label")
     return fig
 
+
 def top_n_transactions(df: pd.DataFrame, n=5) -> pd.DataFrame:
     """
-    Returns top N transactions by amount (descending).
+    Returns top N transactions (both income & expense, sorted by absolute amount).
     """
     if df.empty:
         return df
-    return df.sort_values("amount", ascending=False).head(n).loc[:, ["date", "description", "amount", "category"]]
+    return (
+        df.sort_values("amount", ascending=False)
+          .head(n)
+          .loc[:, ["date", "description", "amount", "category", "type"]]
+    )
+
 
 
 #Changes in analysis
