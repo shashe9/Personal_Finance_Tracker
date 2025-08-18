@@ -103,3 +103,58 @@ def top_n_transactions(df: pd.DataFrame, n=5) -> pd.DataFrame:
     if df.empty:
         return df
     return df.sort_values("amount", ascending=False).head(n).loc[:, ["date", "description", "amount", "category"]]
+
+
+#Changes in analysis
+
+
+
+def make_cashflow_trend(df):
+    df["month"] = df["date"].dt.to_period("M").astype(str)
+    flow = df.groupby(["month", "type"])["amount"].sum().reset_index()
+    return px.bar(flow, x="month", y="amount", color="type", barmode="group",
+                  labels={"month": "Month", "amount": "Amount", "type": "Type"},
+                  title="Income vs Expense by Month")
+
+
+def make_cumulative_net_savings(df):
+    df_sorted = df.sort_values("date").copy()
+    df_sorted["signed_amount"] = df_sorted.apply(
+        lambda r: r["amount"] if r["type"] == "income" else -r["amount"], axis=1
+    )
+    df_sorted["cumulative"] = df_sorted["signed_amount"].cumsum()
+    return px.line(df_sorted, x="date", y="cumulative",
+                   labels={"date": "Date", "cumulative": "Net Savings"},
+                   title="Cumulative Net Savings Over Time")
+
+
+def make_spending_heatmap(df):
+    df["weekday"] = df["date"].dt.day_name()
+    df["hour"] = df["date"].dt.hour
+    weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    df["weekday"] = pd.Categorical(df["weekday"], categories=weekday_order, ordered=True)
+
+    heatmap_data = df.pivot_table(index="weekday", columns="hour", values="amount", aggfunc="sum").fillna(0)
+    return px.imshow(
+        heatmap_data.to_numpy(),
+        x=heatmap_data.columns.astype(str),
+        y=heatmap_data.index.astype(str),
+        labels=dict(x="Hour", y="Weekday", color="Amount"),
+        aspect="auto",
+        color_continuous_scale="Reds",
+        title="Spending Heatmap (Weekday vs Hour)"
+    )
+
+
+def make_rolling_avg_spending(df, window=7):
+    df_sorted = df.sort_values("date")
+    df_sorted["rolling"] = df_sorted["amount"].rolling(window).mean()
+    return px.line(df_sorted, x="date", y="rolling",
+                   title=f"{window}-Day Rolling Average Spending")
+
+
+def make_category_share_over_time(df):
+    df["month"] = df["date"].dt.to_period("M").astype(str)
+    monthly_cat = df.groupby(["month", "category"])["amount"].sum().reset_index()
+    return px.area(monthly_cat, x="month", y="amount", color="category",
+                   title="Monthly Spending by Category")

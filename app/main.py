@@ -7,6 +7,11 @@ from analysis import (
     make_monthly_spend_figure,
     make_category_spend_figure,
     top_n_transactions,
+    make_cashflow_trend,
+    make_cumulative_net_savings,
+    make_spending_heatmap,
+    make_rolling_avg_spending,
+    make_category_share_over_time
 )
 
 # Initialize database if not present
@@ -91,7 +96,14 @@ elif page == "All Transactions":
 elif page == "Visualization & Analysis":
     st.title("Dashboard & Insights")
 
-    vis_type = st.radio("See Visualisation", ["Month-wise spendings", "Categories-wise spending", "Top transactions"])
+    vis_type = st.radio("See Visualisation", ["Month-wise spendings",
+                                              "Categories-wise spending", 
+                                              "Top transactions",
+                                              "Cashflow Trend",
+                                              "Cumulative Net Savings",
+                                              "Spending Heatmap",
+                                              "Rolling Average Spending",
+                                              "Category Share Over Time"])
 
     # cached loader so UI snappy
     @st.cache_data
@@ -132,3 +144,18 @@ elif page == "Visualization & Analysis":
             st.subheader("Top transactions")
             top_df = top_n_transactions(df, n=5)
             st.dataframe(top_df, use_container_width=True)
+        
+        elif vis_type == "Cashflow Trend":
+            st.plotly_chart(make_cashflow_trend(df), use_container_width=True)
+
+        elif vis_type == "Cumulative Net Savings":
+            st.plotly_chart(make_cumulative_net_savings(df), use_container_width=True)
+
+        elif vis_type == "Spending Heatmap":
+            st.plotly_chart(make_spending_heatmap(df), use_container_width=True)
+
+        elif vis_type == "Rolling Average Spending":
+            st.plotly_chart(make_rolling_avg_spending(df), use_container_width=True)
+
+        elif vis_type == "Category Share Over Time":
+            st.plotly_chart(make_category_share_over_time(df), use_container_width=True)
