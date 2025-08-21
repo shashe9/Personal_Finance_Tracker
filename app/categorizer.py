@@ -93,3 +93,17 @@ if __name__ == "__main__":
 
         category, confidence = predict_category(text, mapping)
         print(f"Final Category: {category}  (ML Confidence: {confidence:.2f}%)\n")
+
+
+# -------------------------
+# ENSURE CSV EXISTS
+# -------------------------
+def ensure_csv_exists(path: str = CSV_PATH):
+    """Create categories.csv with a header if it doesn't exist."""
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Category", "Keywords"])
+        print(f"Created template categories.csv at {path}")
+
