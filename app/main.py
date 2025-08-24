@@ -54,34 +54,63 @@ page = st.sidebar.radio(
 
 # ---------------- Manage Transactions ----------------
 if page == "Manage Transactions":
-    st.title("Manage Transactions")
+    st.markdown("## ✏️ Add / Manage Transactions")
 
-    with st.form("transaction_form"):
-        date = st.date_input("Date", datetime.date.today())
-        description = st.text_input("Description")
+    # Instruction container
+    with st.expander("ℹ️ How to add a transaction", expanded=True):
+        st.markdown(
+            """
+            - **Date**: When the transaction happened  
+            - **Description**: What the transaction was for  
+            - **Category**: Optional (auto-suggest based on description)  
+            - **Amount**: Positive number  
+            - **Type**: Expense or Income
+            """
+        )
 
-        mapping = get_category_map()
-        suggested_category = categorize_transaction(description, mapping) if description.strip() else ""
+    # Transaction form in a container for separation and clarity
+    with st.container():
+        with st.form("transaction_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                date_input = st.date_input("📅 Date", datetime.date.today())
+                description_input = st.text_input("📝 Description")
 
-        amount = st.number_input("Amount", min_value=0.0, step=0.01)
-        category = st.text_input("Category (optional)", value=suggested_category)
+            with col2:
+                # Suggest category dynamically
+                mapping = get_category_map()
+                suggested_category = categorize_transaction(description_input, mapping) if description_input.strip() else ""
+                category_input = st.text_input("📂 Category (optional)", value=suggested_category)
+                amount_input = st.number_input("💰 Amount", min_value=0.0, step=0.01)
 
-        t_type = st.radio("Type", ["Expense", "Income"])
+            t_type = st.radio("Type", ["Expense", "Income"], horizontal=True)
 
-        submitted = st.form_submit_button("Add Transaction")
+            submitted = st.form_submit_button("➕ Add Transaction")
 
-        if submitted:
-            try:
-                add_transaction(
-                    date.isoformat(),
-                    description,
-                    amount,
-                    category,
-                    t_type.lower()
-                )
-                st.success(f"{t_type} added!")
-            except ValueError as e:
-                st.error(str(e))
+            if submitted:
+                try:
+                    if amount_input <= 0:
+                        st.warning("⚠️ Amount must be greater than zero.")
+                    else:
+                        add_transaction(
+                            date_input.isoformat(),
+                            description_input,
+                            amount_input,
+                            category_input,
+                            t_type.lower()
+                        )
+                        st.success(f"✅ {t_type} added successfully!")
+                except ValueError as e:
+                    st.error(f"❌ {str(e)}")
+
+    # Optional: Show last 5 transactions as immediate feedback
+    recent_tx = get_transactions().sort_values("date", ascending=False).head(5)
+    if not recent_tx.empty:
+        st.markdown("### 🕒 Recent Transactions")
+        st.dataframe(
+            recent_tx,
+            use_container_width=True
+        )
 
 
 # ---------------- All Transactions ----------------
@@ -93,8 +122,14 @@ elif page == "All Transactions":
     if df is None or df.empty:
         st.info("No transactions yet.")
     else:
-        # normalize column names to lowercase so code is robust
+        # normalize column names to lowercase
         df.columns = [c.lower() for c in df.columns]
+
+        # ensure optional columns exist
+        if "category" not in df.columns:
+            df["category"] = ""
+        if "type" not in df.columns:
+            df["type"] = ""
 
         # ensure date column is datetime
         if "date" in df.columns:
@@ -107,7 +142,6 @@ elif page == "All Transactions":
             # Date range
             min_date = df["date"].min().date() if not df["date"].isna().all() else datetime.date.today()
             max_date = df["date"].max().date() if not df["date"].isna().all() else datetime.date.today()
-
             with c1:
                 start = st.date_input("Start date", value=min_date, min_value=min_date, max_value=max_date)
                 end = st.date_input("End date", value=max_date, min_value=min_date, max_value=max_date)
@@ -139,40 +173,26 @@ elif page == "All Transactions":
 
         # ---------- APPLY FILTERS ----------
         dff = df.copy()
-
-        # date filter
         dff = dff[(dff["date"] >= pd.to_datetime(start)) & (dff["date"] <= pd.to_datetime(end))]
-
-        # category
         if selected_cats:
             dff = dff[dff["category"].isin(selected_cats)]
-
-        # type
         if ttype != "All":
             dff = dff[dff["type"].str.lower() == ttype.lower()]
-
-        # text search
         if q and q.strip():
-            ql = q.lower().strip()
-            dff = dff[dff["description"].fillna("").str.lower().str.contains(ql)]
-
-        # amount filters
-        if min_amt and min_amt > 0:
+            dff = dff[dff["description"].fillna("").str.lower().str.contains(q.lower().strip())]
+        if min_amt > 0:
             dff = dff[dff["amount"] >= float(min_amt)]
-        if max_amt and max_amt > 0:
+        if max_amt > 0:
             dff = dff[dff["amount"] <= float(max_amt)]
-
-        # sorting
         ascending = sort_dir == "Ascending"
         if sort_by in dff.columns:
             dff = dff.sort_values(by=sort_by, ascending=ascending)
         else:
-            # safe fallback
             dff = dff.sort_values(by="date", ascending=not ascending)
 
         # ---------- QUICK KPIs ----------
-        exp_df = dff[dff["type"].str.lower() == "expense"] if "type" in dff.columns else dff
-        inc_df = dff[dff["type"].str.lower() == "income"] if "type" in dff.columns else dff.iloc[0:0]
+        exp_df = dff[dff["type"].str.lower() == "expense"]
+        inc_df = dff[dff["type"].str.lower() == "income"]
         total_count = len(dff)
         total_spent = float(exp_df["amount"].sum()) if not exp_df.empty else 0.0
         total_income = float(inc_df["amount"].sum()) if not inc_df.empty else 0.0
@@ -205,14 +225,11 @@ elif page == "All Transactions":
         end_idx = start_idx + page_size
         page_df = dff.iloc[start_idx:end_idx].copy()
 
-        # ---------- TABLE (compact) ----------
-        # Format for display
+        # ---------- DISPLAY TABLE ----------
         disp = page_df.loc[:, ["id", "date", "description", "category", "type", "amount"]].copy()
         disp["date"] = disp["date"].dt.strftime("%Y-%m-%d")
-        # truncate long descriptions for table
         disp["description"] = disp["description"].fillna("").apply(lambda s: s if len(s) <= 80 else s[:77] + "...")
         disp["amount"] = disp["amount"].apply(lambda x: f"₹{x:,.2f}")
-
         st.dataframe(disp.reset_index(drop=True), use_container_width=True, height=360)
 
         # ---------- DOWNLOAD FILTERED CSV ----------
@@ -226,7 +243,8 @@ elif page == "All Transactions":
         # ---------- DETAILS & DELETE ----------
         st.subheader("Transaction details / delete")
         ids = dff["id"].tolist()
-        selected_id = st.selectbox("Select transaction ID", options=[0] + ids, format_func=lambda x: "— Select —" if x == 0 else str(x))
+        selected_id = st.selectbox("Select transaction ID", options=[0] + ids,
+                                   format_func=lambda x: "— Select —" if x == 0 else str(x))
         if selected_id and selected_id != 0:
             tx_row = dff[dff["id"] == selected_id].iloc[0]
             st.markdown("**Full details:**")
@@ -243,7 +261,6 @@ elif page == "All Transactions":
                     delete_transaction(int(selected_id))
                     st.success(f"Transaction {selected_id} deleted.")
                     st.experimental_rerun()
-
 
 
 
