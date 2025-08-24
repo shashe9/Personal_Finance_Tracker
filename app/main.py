@@ -16,12 +16,8 @@ from analysis import (
 )
 
 from budget import (
-    ensure_budget_schema,
-    upsert_budget,
-    get_budgets,
-    delete_budget as delete_budget_row,
-    build_budget_report,
-    generate_tips,
+    ensure_budget_schema, upsert_budget, get_budgets, delete_budget,
+    build_budget_report, generate_tips
 )
 
 
@@ -177,111 +173,81 @@ elif page == "Visualization & Analysis":
 
 
 
-# ---------------- Budgets & Tips ----------------
 elif page == "Budgets & Tips":
     st.title("Budgets & Tips")
 
-    # Choose month (period)
+    # Period selector (YYYY-MM)
     today = datetime.date.today()
-    sel_date = st.date_input("Select month", value=today)
-    period = f"{sel_date.year:04d}-{sel_date.month:02d}"
+    this_period = f"{today.year}-{today.month:02d}"
+    period = st.selectbox(
+        "Budget Month",
+        [this_period],  # keep simple; you can add past months list later
+        index=0
+    )
 
-    # Load current transactions and current budgets
-    df = load_transactions_df()
+    # ----- Add/Update Budget -----
+    st.subheader("Set / Update Budget")
+    mapping = get_category_map()
+    cat_options = sorted([c for c in mapping.keys() if c.lower() != "other"] + ["Overall"])
+    c1, c2 = st.columns([2,1])
+    with c1:
+        b_cat = st.selectbox("Category", cat_options, index=0)
+    with c2:
+        b_amt = st.number_input("Amount (₹)", min_value=0.0, step=500.0, value=0.0)
+    if st.button("Save Budget"):
+        if b_amt <= 0:
+            st.error("Amount must be positive.")
+        else:
+            upsert_budget(period, b_cat, b_amt)
+            st.success(f"Saved budget for {b_cat}: ₹{int(b_amt)}")
+
+    # ----- Current Budgets -----
+    st.subheader("Current Budgets")
     budgets_df = get_budgets(period)
-
-    with st.expander("Add / Update Budget", expanded=True):
-        # Category choices: derived from CSV mapping; include a special 'Overall'
-        mapping = get_category_map()
-        # Show only expense categories by default; still allow Overall
-        cat_options = sorted([c for c in mapping.keys() if c.lower() != "income"])
-        cat_options = ["Overall"] + cat_options
-
-        bcol1, bcol2 = st.columns([2, 1])
-        with bcol1:
-            b_category = st.selectbox("Category", options=cat_options, index=0)
-        with bcol2:
-            b_amount = st.number_input("Monthly Budget Amount", min_value=0.0, step=100.0, value=0.0)
-
-        if st.button("Save Budget"):
-            try:
-                if b_amount <= 0:
-                    st.error("Budget amount must be positive.")
-                else:
-                    upsert_budget(period, b_category, b_amount)
-                    st.success(f"Saved budget for {b_category} in {period}.")
-            except Exception as e:
-                st.error(str(e))
-
-    st.subheader(f"Budgets for {period}")
     if budgets_df.empty:
         st.info("No budgets set for this month yet.")
     else:
-        st.dataframe(budgets_df, use_container_width=True)
-
-        # Delete a budget row by ID
-        dcol1, dcol2 = st.columns([1, 3])
-        with dcol1:
-            del_id = st.number_input("Delete Budget ID", min_value=0, step=1, value=0)
-        with dcol2:
-            if st.button("Delete Budget"):
-                if del_id > 0:
-                    delete_budget_row(int(del_id))
-                    st.success(f"Deleted budget id {del_id}")
-                else:
-                    st.warning("Enter a valid ID to delete.")
-
-    # ---- Budget vs Actual + Projections ----
-    if df.empty or budgets_df.empty:
-        st.info("Add some transactions and budgets to see analysis.")
-    else:
-        report = build_budget_report(period, df, budgets_df)
-        st.subheader("Budget vs. Actual (with projection)")
-        st.dataframe(
-            report[[
-                "category", "budget", "actual", "variance",
-                "pct_used", "projected", "proj_vs_budget", "ahead_of_pace"
-            ]].rename(columns={
-                "pct_used": "pct_used (0-∞)",
-                "proj_vs_budget": "projected - budget",
-                "ahead_of_pace": "ahead_of_pace_vs_pro_rata"
-            }),
-            use_container_width=True
-        )
-
-        # Quick tiles
-        total_budget = float(report.loc[report["category"] != "Overall", "budget"].sum() +
-                             report.loc[report["category"] == "Overall", "budget"].sum() * 0)
-        # If user sets Overall, don't double count. So compute both ways:
-        total_budget = float(report[report["category"] != "Overall"]["budget"].sum() or
-                             report[report["category"] == "Overall"]["budget"].sum())
-        total_actual = float(report["actual"].sum()) if (report["category"] == "Overall").any() else \
-                       float(df[(df["date"].dt.strftime("%Y-%m") == period) & (df["type"] == "expense")]["amount"].sum())
-
-        t1, t2, t3 = st.columns(3)
-        with t1:
-            st.metric("Total Budget", f"{total_budget:,.0f}")
-        with t2:
-            st.metric("Total Actual (to date)", f"{total_actual:,.0f}")
-        with t3:
-            # rough projection
-            start, end = pd.Timestamp(f"{period}-01"), pd.Timestamp(f"{period}-01") + pd.offsets.MonthEnd(1)
-            dim = (end - start).days + 1
-            today = pd.Timestamp.today()
-            if start.month == today.month and start.year == today.year:
-                day_ratio = today.day / dim
-            elif start < today.replace(day=1):
-                day_ratio = 1.0
+        st.dataframe(budgets_df.rename(columns={"amount":"Budget (₹)"}), use_container_width=True)
+        del_id = st.number_input("Delete budget row by ID", min_value=0, step=1, value=0)
+        if st.button("Delete Budget"):
+            if del_id > 0 and (budgets_df["id"] == del_id).any():
+                delete_budget(int(del_id))
+                st.success(f"Deleted budget id {int(del_id)}")
             else:
-                day_ratio = 1 / dim
-            projected_total = total_actual / max(0.5, day_ratio)
-            st.metric("Projected Month-End", f"{projected_total:,.0f}")
+                st.error("Enter a valid ID from the table above.")
 
-        # ---- Tips ----
+    # ----- Report & Insights -----
+    st.subheader("Budget vs Actual Report")
+    df = load_transactions_df()
+    report = build_budget_report(period, df, get_budgets(period))
+
+    if report.empty:
+        st.info("Add some budgets and expenses to see insights.")
+    else:
+        # Pretty display with progress columns (if your Streamlit supports column_config)
+        try:
+            st.dataframe(
+                report,
+                use_container_width=True,
+                column_config={
+                    "Budget": st.column_config.NumberColumn("Budget (₹)", format="₹%d"),
+                    "Actual": st.column_config.NumberColumn("Actual (₹)", format="₹%d"),
+                    "Δ (Actual-Budget)": st.column_config.NumberColumn("Δ (₹)", format="₹%d"),
+                    "% Used": st.column_config.ProgressColumn("% Used", format="%.0f%%", min_value=0, max_value=200),
+                    "Month Elapsed": st.column_config.ProgressColumn("Month Elapsed", format="%.0f%%", min_value=0, max_value=100),
+                    "Pace Gap": st.column_config.NumberColumn("Pace Gap (pp)", format="%.0f"),
+                    "Projected End": st.column_config.NumberColumn("Projected End (₹)", format="₹%d"),
+                    "Proj Δ": st.column_config.NumberColumn("Proj Δ (₹)", format="₹%d"),
+                }
+            )
+        except Exception:
+            # Fallback if older Streamlit
+            st.dataframe(report, use_container_width=True)
+
         st.subheader("Tips")
         tips = generate_tips(report, period, df)
-        if not tips:
-            st.success("All good! No issues detected for this month")
-        else:
+        if tips:
             for t in tips:
-                st.write("• " + t)
+                st.markdown(f"- {t}")
+        else:
+            st.info("No special tips — you’re on track 🎉")
