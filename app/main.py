@@ -20,7 +20,6 @@ from budget import (
     build_budget_report, generate_tips
 )
 
-
 # Initialize database if not present
 create_db()
 
@@ -28,28 +27,56 @@ create_db()
 ensure_budget_schema()
 
 
-st.set_page_config(page_title="Personal Finance Tracker", layout="wide")
+# ---------------- Page Config ----------------
+st.set_page_config(
+    page_title="Personal Finance Tracker",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Make sure the CSV template exists (helps new teammates)
-ensure_csv_exists()
+# ---------------- Ensure CSV / Data Exists ----------------
+ensure_csv_exists()  # ensures templates exist for new users or teammates
 
-
+# ---------------- Cached Data Load ----------------
 @st.cache_data
 def get_category_map():
     return load_category_keywords()
 
+# ---------------- Sidebar: Header ----------------
+st.sidebar.markdown("## ⚙️ Settings & Navigation")
 
-# Sidebar Navigation
-st.sidebar.header("Settings")
-if st.sidebar.button("Reload categories.csv"):
-    get_category_map.clear()  # picks up CSV edits without restarting the app
-    st.sidebar.success("Categories reloaded!")
+# Reload categories CSV button
+if st.sidebar.button("🔄 Reload Categories CSV"):
+    get_category_map.clear()  # refresh cached categories
+    st.sidebar.success("Categories reloaded successfully!")
 
-st.sidebar.title("Navigation")
+st.sidebar.markdown("---")  # separator
+
+# ---------------- Sidebar: Navigation ----------------
+st.sidebar.markdown("### 📂 Go to")
 page = st.sidebar.radio(
-    "Go to",
-    ["Manage Transactions", "All Transactions", "Visualization & Analysis", "Budgets & Tips"]
+    label = "Navigate to",
+    options=["Manage Transactions", "All Transactions", "Visualization & Analysis", "Budgets & Tips"],
+    index=0
 )
+
+# Optional: Quick tips section in sidebar
+with st.sidebar.expander("💡 Quick Tips", expanded=False):
+    st.markdown("""
+    - Use **Manage Transactions** to add or edit income/expense.
+    - **All Transactions** shows a searchable & filterable transaction table.
+    - Visualize trends and patterns under **Visualization & Analysis**.
+    - Set monthly budgets and get smart tips in **Budgets & Tips**.
+    - Reload categories CSV if you updated keywords without restarting.
+    """)
+
+# ---------------- Sidebar: Footer ----------------
+st.sidebar.markdown("---")
+st.sidebar.caption("Made with ❤️ using Streamlit\nPersonal Finance Tracker 2025")
+
+
+
 
 
 # ---------------- Manage Transactions ----------------
@@ -68,7 +95,7 @@ if page == "Manage Transactions":
             """
         )
 
-    # Transaction form in a container for separation and clarity
+    # Transaction form container
     with st.container():
         with st.form("transaction_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -77,10 +104,29 @@ if page == "Manage Transactions":
                 description_input = st.text_input("📝 Description")
 
             with col2:
-                # Suggest category dynamically
+                # Load category mapping (ensure latest)
                 mapping = get_category_map()
+
+                # Compute suggested category only if description is not empty
                 suggested_category = categorize_transaction(description_input, mapping) if description_input.strip() else ""
-                category_input = st.text_input("📂 Category (optional)", value=suggested_category)
+
+                # Use session_state to preserve user edits
+                if "category_input" not in st.session_state:
+                    st.session_state.category_input = suggested_category
+
+                # Update suggested category only if description changes
+                if description_input.strip() and st.session_state.category_input != suggested_category:
+                    st.session_state.category_input = suggested_category
+
+                category_input = st.text_input(
+                    "📂 Category (optional)",
+                    value=st.session_state.category_input,
+                    placeholder="Auto-suggested based on description"
+                )
+
+                # Update session state with user input
+                st.session_state.category_input = category_input
+
                 amount_input = st.number_input("💰 Amount", min_value=0.0, step=0.01)
 
             t_type = st.radio("Type", ["Expense", "Income"], horizontal=True)
@@ -96,10 +142,13 @@ if page == "Manage Transactions":
                             date_input.isoformat(),
                             description_input,
                             amount_input,
-                            category_input,
+                            category_input.strip() or "Other",
                             t_type.lower()
                         )
                         st.success(f"✅ {t_type} added successfully!")
+
+                        # Clear inputs after successful submission
+                        st.session_state.category_input = ""
                 except ValueError as e:
                     st.error(f"❌ {str(e)}")
 
@@ -109,7 +158,8 @@ if page == "Manage Transactions":
         st.markdown("### 🕒 Recent Transactions")
         st.dataframe(
             recent_tx,
-            use_container_width=True
+            use_container_width=True,
+            height=300
         )
 
 
