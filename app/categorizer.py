@@ -59,7 +59,9 @@ def predict_category(text, mapping):
     for category, keywords in mapping.items():
         for kw in keywords:
             if kw and re.search(r"\b" + re.escape(kw) + r"\b", desc_lower):
-                return category, best_confidence * 100  # return with ML confidence for info
+                # If keyword matches, return with 100% confidence (since it’s a direct rule)
+                return category, 100.0
+
 
     # Step 3: Default to "Other"
     return "Other", best_confidence * 100
